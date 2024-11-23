@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>When will Dogecoin hit $1?</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+    header {
+      background-color: #0078d4;
+      color: white;
+      padding: 1rem;
+      text-align: center;
+    }
+    header select {
+      margin-top: 1rem;
+      font-size: 1rem;
+    }
+    main {
+      padding: 1rem;
+      text-align: center;
+    }
+    .chart-container {
+      position: relative;
+      margin: 2rem auto;
+      height: 400px;
+      width: 80%;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>When will Dogecoin hit $1?</h1>
+    <select id="marketDropdown">
+      <option value="">Select a date range</option>
+    </select>
+  </header>
+  <main>
+    <div class="chart-container">
+      <canvas id="marketChart"></canvas>
+    </div>
+  </main>
+  <script>
+    const jsonDirectory = './data'; // Directory containing JSON files
+    let marketMap = {}; // To store processed market data
+    let currentChart; // To store the active chart instance
+
+    /**
+     * Fetch all JSON files listed in index.json
+     */
+    async function fetchJSONFiles() {
+      try {
+        const indexResponse = await fetch(`${jsonDirectory}/index.json`);
+        if (!indexResponse.ok) throw new Error('Failed to fetch index.json');
+        const fileList = await indexResponse.json();
+
+        const filesData = await Promise.all(
+          fileList.map(async (file) => {
+            const fileResponse = await fetch(`${jsonDirectory}/${file}`);
+            if (!fileResponse.ok) throw new Error(`Failed to fetch ${file}`);
+            return await fileResponse.json();
+          })
+        );
+
+        return filesData;
+      } catch (error) {
+        console.error('Error fetching JSON files:', error);
+        return [];
+      }
+    }
+
+    /**
+     * Process fetched JSON data into a structure usable for visualization
+     */
+    function processEventData(jsonData) {
+      const processedMarketMap = {};
+      jsonData.forEach((snapshot, snapshotIndex) => {
+        const timestamp = snapshot.timestamp || `Snapshot ${snapshotIndex + 1}`;
+
+        snapshot.events.forEach((event) => {
+          const eventTitle = event.title;
+
+          event.markets.forEach((market) => {
+            const marketTicker = market.ticker_name;
+            if (!processedMarketMap[marketTicker]) {
+              processedMarketMap[marketTicker] = {
+                title: `${eventTitle} (${market.yes_sub_title || marketTicker})`,
+                timestamps: [],
+                prices: [],
+              };
+            }
+
+            // Add data points for the market
+            if (market.last_price !== null && market.last_price !== undefined) {
+              processedMarketMap[marketTicker].timestamps.push(timestamp);
+              processedMarketMap[marketTicker].prices.push(market.last_price);
+            }
+          });
+        });
+      });
+
+      return processedMarketMap;
+    }
+
+    /**
+     * Sort the markets by volatility (price range: max - min)
+     */
+    function sortMarketsByVolatility(marketMap) {
+      const sortedMarkets = Object.entries(marketMap).sort(([, a], [, b]) => {
+        const volatilityA = Math.max(...a.prices) - Math.min(...a.prices);
+        const volatilityB = Math.max(...b.prices) - Math.min(...b.prices);
+        return volatilityB - volatilityA; // Descending order
+      });
+
+      // Convert back to object
+      return Object.fromEntries(sortedMarkets);
+    }
+
+    /**
+     * Create and display the chart for a specific market
+     */
+    function createChart(marketData) {
+      const chartCanvas = document.getElementById('marketChart');
+
+      // Destroy the previous chart if it exists
+      if (currentChart) {
+        currentChart.destroy();
+      }
+
+      // Create the new chart
+      currentChart = new Chart(chartCanvas, {
+        type: 'line',
+        data: {
+          labels: marketData.timestamps,
+          datasets: [
+            {
+              label: 'Last Price (cents)',
+              data: marketData.prices,
+              borderColor: 'rgba(75, 192, 192, 1)',
+              backgroundColor: 'rgba(75, 192, 192, 0.2)',
+              borderWidth: 2,
+              fill: true,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { position: 'top' },
+            tooltip: {
+              callbacks: {
+                label: (context) => `${context.raw}¢`,
+              },
+            },
+          },
+          scales: {
+            x: { title: { display: true, text: 'Time' } },
+            y: {
+              title: { display: true, text: 'Price (cents)' },
+              min: 0,
+              max: 100, // Scale y-axis from 0 to 100 cents
+            },
+          },
+        },
+      });
+    }
+
+    /**
+     * Populate dropdown with market options, sorted by volatility
+     */
+    function populateDropdown() {
+      const dropdown = document.getElementById('marketDropdown');
+      Object.keys(marketMap).forEach((marketTicker) => {
+        const option = document.createElement('option');
+        option.value = marketTicker;
+        option.textContent = marketMap[marketTicker].title;
+        dropdown.appendChild(option);
+      });
+
+      // Event listener for dropdown change
+      dropdown.addEventListener('change', (event) => {
+        const selectedMarket = event.target.value;
+        if (selectedMarket && marketMap[selectedMarket]) {
+          createChart(marketMap[selectedMarket]);
+        }
+      });
+    }
+
+    /**
+     * Main function to fetch data, sort, and render dropdown and charts
+     */
+    async function main() {
+      try {
+        const jsonData = await fetchJSONFiles();
+        if (jsonData.length === 0) {
+          console.error('No data available to display.');
+          return;
+        }
+
+        console.log('Fetched Data:', jsonData); // Debugging fetched data
+        const unsortedMarketMap = processEventData(jsonData);
+        marketMap = sortMarketsByVolatility(unsortedMarketMap); // Sort by volatility
+        console.log('Sorted Market Map:', marketMap); // Debugging sorted market data
+        populateDropdown();
+      } catch (error) {
+        console.error('Error in main function:', error);
+      }
+    }
+
+    // Execute main function
+    main();
+  </script>
+</body>
+</html>
