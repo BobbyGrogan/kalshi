@@ -91,34 +91,26 @@
               processedMarketMap[marketTicker] = {
                 title: `${eventTitle} (${market.yes_sub_title || marketTicker})`,
                 timestamps: [],
-                prices: [],
+                yesBid: [],
+                yesAsk: [],
+                noAsk: [],
+                volume: [],
               };
             }
 
             // Add data points for the market
-            if (market.last_price !== null && market.last_price !== undefined) {
-              processedMarketMap[marketTicker].timestamps.push(timestamp);
-              processedMarketMap[marketTicker].prices.push(market.last_price);
-            }
+            processedMarketMap[marketTicker].timestamps.push(timestamp);
+            processedMarketMap[marketTicker].yesBid.push(market.yes_bid || null);
+            processedMarketMap[marketTicker].yesAsk.push(market.yes_ask || null);
+            processedMarketMap[marketTicker].noAsk.push(
+              market.yes_bid !== null ? 100 - market.yes_bid : null
+            );
+            processedMarketMap[marketTicker].volume.push(market.volume || null);
           });
         });
       });
 
       return processedMarketMap;
-    }
-
-    /**
-     * Sort the markets by volatility (price range: max - min)
-     */
-    function sortMarketsByVolatility(marketMap) {
-      const sortedMarkets = Object.entries(marketMap).sort(([, a], [, b]) => {
-        const volatilityA = Math.max(...a.prices) - Math.min(...a.prices);
-        const volatilityB = Math.max(...b.prices) - Math.min(...b.prices);
-        return volatilityB - volatilityA; // Descending order
-      });
-
-      // Convert back to object
-      return Object.fromEntries(sortedMarkets);
     }
 
     /**
@@ -139,12 +131,37 @@
           labels: marketData.timestamps,
           datasets: [
             {
-              label: 'Last Price (cents)',
-              data: marketData.prices,
+              label: 'Yes Bid (cents)',
+              data: marketData.yesBid,
+              borderColor: 'rgba(255, 99, 132, 1)',
+              backgroundColor: 'rgba(255, 99, 132, 0.2)',
+              borderWidth: 2,
+              fill: false,
+            },
+            {
+              label: 'Yes Ask (cents)',
+              data: marketData.yesAsk,
+              borderColor: 'rgba(54, 162, 235, 1)',
+              backgroundColor: 'rgba(54, 162, 235, 0.2)',
+              borderWidth: 2,
+              fill: false,
+            },
+            {
+              label: 'No Ask (cents)',
+              data: marketData.noAsk,
               borderColor: 'rgba(75, 192, 192, 1)',
               backgroundColor: 'rgba(75, 192, 192, 0.2)',
               borderWidth: 2,
+              fill: false,
+            },
+            {
+              label: 'Volume',
+              data: marketData.volume,
+              borderColor: 'rgba(153, 102, 255, 1)',
+              backgroundColor: 'rgba(153, 102, 255, 0.2)',
+              borderWidth: 2,
               fill: true,
+              yAxisID: 'volumeAxis',
             },
           ],
         },
@@ -154,7 +171,11 @@
             legend: { position: 'top' },
             tooltip: {
               callbacks: {
-                label: (context) => `${context.raw}¢`,
+                label: (context) => {
+                  const label = context.dataset.label || '';
+                  if (label === 'Volume') return `${label}: ${context.raw}`;
+                  return `${label}: ${context.raw}¢`;
+                },
               },
             },
           },
@@ -165,13 +186,18 @@
               min: 0,
               max: 100, // Scale y-axis from 0 to 100 cents
             },
+            volumeAxis: {
+              position: 'right',
+              title: { display: true, text: 'Volume' },
+              grid: { drawOnChartArea: false }, // Don't overlap grid lines with the main y-axis
+            },
           },
         },
       });
     }
 
     /**
-     * Populate dropdown with market options, sorted by volatility
+     * Populate dropdown with market options
      */
     function populateDropdown() {
       const dropdown = document.getElementById('marketDropdown');
@@ -202,10 +228,8 @@
           return;
         }
 
-        console.log('Fetched Data:', jsonData); // Debugging fetched data
         const unsortedMarketMap = processEventData(jsonData);
-        marketMap = sortMarketsByVolatility(unsortedMarketMap); // Sort by volatility
-        console.log('Sorted Market Map:', marketMap); // Debugging sorted market data
+        marketMap = unsortedMarketMap;
         populateDropdown();
       } catch (error) {
         console.error('Error in main function:', error);
